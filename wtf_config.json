@@ -1,0 +1,14 @@
+{
+  "catalogs": [
+    {
+      "name": "Current directory",
+      "path": "./",
+      "exclude": [
+        "*.git"
+      ],
+      "include": [
+        "*"
+      ],
+      "fstype": "local"
+    }
+}
