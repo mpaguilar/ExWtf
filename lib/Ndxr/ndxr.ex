@@ -2,85 +2,94 @@
 defmodule ExWtf.Ndxr do
   use GenServer
   require Logger
-  import ExWtf.NdxrIO
 
-  def start_link(%Ndxr.Catalog{} = catalog, opts) do
+  def start_link(%Ndxr.Catalog{} = catalog) do
     # make all the Path and File libraries happy
-    catalog = cond do
-      ( "" == catalog.path or "." == catalog.path ) ->
-        %Ndxr.Catalog{ catalog | path: "./" }
-      true -> catalog
-    end
+    catalog =
+      cond do
+        "" == catalog.path or "." == catalog.path ->
+          %Ndxr.Catalog{catalog | path: "./"}
 
-    Logger.info("Starting Ndxr with #{inspect(catalog)}")
-    Logger.info("Ndxr #{catalog.name} options: #{inspect(opts)}")
-    istate = %NdxrState{ catalog: catalog }
-    GenServer.start_link(__MODULE__, istate, opts)
+        true ->
+          catalog
+      end
+
+    Logger.info("Starting Ndxr process with #{inspect(catalog)}")
+
+    regname = ExWtf.get_id(catalog.name)
+    GenServer.start_link(__MODULE__, %NdxrState{catalog: catalog}, name: regname)
   end
 
-  def init(%NdxrState{} = state) do   
-
-    # {:ok, _} = Registry.register(
-    #  CatalogNotify,
-    #  "add_directory",
-    #  {ExWtf.Ndxr, :add_directory})
-
+  def init(%NdxrState{} = state) do
     {:ok, state}
-  end
-
-  def get_id(catalog_name) do
-    {:via, Registry, {Ndxrs, catalog_name}}
-  end
-
-  @doc ~S"""
-  Starts crawling file system to load up the internal Directorys
-  """
-
-  def load_catalog(catalog_name) do
-    Logger.warn("Loading catalog")
-    GenServer.cast(get_id(catalog_name), :load_catalog)
-  end
-
-  @doc ~S"""
-  Updates the db with it's current catalog,
-  then starts the crawl
-  """
-  def handle_cast(:load_catalog, ndxrstate) do
-    Logger.warn("recd msg to load catalog #{inspect(ndxrstate.catalog.name)}")
-    {:ok, _} = Model.Ndxr.upsert(ndxrstate.catalog, nil)
-    make_directories(ndxrstate.catalog)
-    {:noreply, ndxrstate}
   end
 
   @doc ~S"""
   Calls NdxrIO.walk_path/2 asyncronously
   """
-  def make_directories(%Ndxr.Catalog{} = catalog) do
-
+  def start_walk(%Ndxr.Catalog{} = catalog) do
     Logger.debug("Loading catalog #{inspect(catalog)}")
+    {:ok, _} = Model.Ndxr.upsert(catalog, nil)
+    Logger.debug("Catalog updated in db")
+    selfpid = self()
 
-    # why a Task? So that the task can update the caller.
-    walk_task = Task.async(
-      fn -> walk_path(catalog, "")
-      end)
+    Task.start(fn ->
+      try do
+        ExWtf.NdxrIO.walk_path(selfpid, catalog, "./")
+        Logger.info("Walk path complete")
+      after
+        # complete even if we crash
+        ExWtf.CatalogNdxrs.catalog_complete(catalog)
+      end
+    end)
+  end
 
-    case Task.await(walk_task, :infinity) do
-      {:ok, dirs} -> {:ok, dirs}
-      :error -> 
-        Logger.error("Error building directories")
-        {:error, "Error building directories"}
+  def add_directory(%Ndxr.Catalog{} = catalog, %Ndxr.Directory{} = directory) do
+    Logger.debug("Adding directory for catalog #{inspect(catalog)}")
+    Logger.debug(" *** \nDirectory: #{inspect(directory)}")
+
+    Model.Ndxr.upsert(directory, catalog)
+  end
+
+  # Server callbacks
+
+  def handle_call(msg, _from, ndxrstate) do
+    case msg do
+      {:add_directory, %Ndxr.Directory{} = newdir} ->
+        Logger.debug("Adding directory #{inspect(newdir)} to catalog #{inspect(ndxrstate.catalog)}")
+        Logger.info("Adding directory (#{ndxrstate.catalog.name}) - #{newdir.relpath}")
+        add_directory(ndxrstate.catalog, newdir)
+        {:reply, :ok, ndxrstate}
+
+      _ ->
+        Logger.warn("Received unknown call: #{inspect(msg)}")
+        {:reply, :error, ndxrstate}
     end
   end
 
-  @doc ~S"""
-  Returns the current list of directories 
-  """
-  def get_directories(catalog_name) do
-    GenServer.call(get_id(catalog_name), :get_directories)
+  def handle_cast(msg, ndxrstate) do
+    case msg do
+
+      {:add_directory, newdir} ->
+        Logger.info("Adding directory #{inspect(newdir)} to catalog #{inspect(ndxrstate.catalog)}")
+        add_directory(ndxrstate.catalog, newdir)
+        {:noreply, ndxrstate}
+
+      {:ndx_catalog} ->
+        Logger.info("Received cast to ndx catalog #{inspect(ndxrstate.catalog.name)}")
+
+        start_walk(ndxrstate.catalog)
+
+        {:noreply, ndxrstate}
+
+      _ ->
+        Logger.warn("Received unexpected cast message: #{inspect(msg)}")
+        {:noreply, ndxrstate}
+    end
   end
 
-  def handle_call(:get_directories, _from, state) do
-    {:reply, {:ok, state.directories}, state}
+  def handle_info(msg, state) do
+    Logger.warn("Received unexpected message: #{inspect(msg)}")
+    {:noreply, state}
   end
-
 end

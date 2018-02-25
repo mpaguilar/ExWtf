@@ -1,5 +1,3 @@
-# ExWtf
-
 "Where's That File?", written in Elixir.
 
 Scans and stores file metadata to a database. It takes the name, path, a few file attributes, 
@@ -26,23 +24,37 @@ Running this in debug mode will create huge log files in the .\log directory.
 
 ## Installation
 
-Clone the repo.
+Install Elixir (assuming debian)
 ```
+wget https://packages.erlang-solutions.com/erlang-solutions_1.0_all.deb
+sudo dpkg -i erlang-solutions_1.0_all.deb
+sudo apt update
+sudo apt install esl-erlang
+sudo apt install elixir
+```
+
+Clone the repo, then compile the application.
+```
+mix local.hex --force
+mix local.rebar --force
 mix deps.get
 mix deps.compile
-iex -S mix
 ```
+Update ```config.exs``` with the correct database settings. I'm using Postgres,
+but others should work fine, too.
 
 Configure logging to your taste. I recommend ConEmu.
 
-Update config.exs with the correct database settings. I'm using Postgres,
-but others should work fine, too.
+Update ```wtf_config.json``` with appropriate settings. Includes and excludes are simple 
+globs.
 
-Update wtf_config.json to include desired directories. Includes and excludes are simple 
-globs. By default, it will scan the current directory, only.
-
-Within iex:
+Then, you can run it with:
 ```
-import_file("qrun.exs")
-CliMain.load()
+mix run run.exs
+```
+
+For a distributed node, use:
+```
+elixir --erl "-name ndxr" -S mix run run.exs
+elixir --sname ndxr -S mix run run.exs
 ```

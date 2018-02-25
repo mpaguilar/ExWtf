@@ -1,0 +1,1 @@
+elixir --sname ndxr -S mix run run.exs

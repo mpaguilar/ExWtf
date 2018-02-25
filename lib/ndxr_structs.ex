@@ -12,15 +12,14 @@ defmodule Ndxr.Catalog do
     include: ["**"],
     exclude: [],
     directories: [],
-    fstype: "local"
+    fstype: "local",
+    host: nil
   )
 end
 
 defmodule NdxrState do
   defstruct(
-    catalog: nil,
-    state: :waiting, # :waiting, :running
-    directories: []
+    catalog: nil
   )
 end
 

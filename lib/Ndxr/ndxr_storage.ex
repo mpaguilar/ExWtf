@@ -13,5 +13,4 @@ defmodule ExWtf.NdxrStorage do
 
     Model.Ndxr.upsert(directory, catalog)
   end
-
 end

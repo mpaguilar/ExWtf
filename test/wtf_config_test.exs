@@ -2,7 +2,6 @@ defmodule WtfConfigTest do
   use ExUnit.Case, async: false
   require Logger
 
-
   test "don't load file" do
     assert {:error, _} = WtfConfig.load("expected failure")
   end

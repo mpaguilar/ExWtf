@@ -12,106 +12,85 @@ defmodule ExWtfMain do
 
   def start(_type, args) do
     Logger.debug("Starting ExWtf application with args #{inspect(args)}")
+    Supervisor.start_link(__MODULE__, args, name: ExWtf)
+  end
 
+  def init(args) do
     with {:ok, config} <- load_config(args) do
-      ExWtf.start_link(config, name: ExWtf)
+      #config = struct(WtfConfigData, config)
+      children = [
+        %{
+          id: ExWtf,
+          start: {ExWtf, :start_link, [config, [name: __MODULE__]]}
+        }
+      ]
+
+      Supervisor.init(children, strategy: :one_for_one)
     else
+      {:error, msg} -> Logger.error(msg)
       true -> {:error}
     end
   end
 
   defp load_config(args) do
+    filename =
+      case args[:config_file] do
+        nil ->
+          {:error, "No config file specified"}
 
-    filename = case args[:config_file] do
-      nil -> "wtf_config.json"
-      filename -> filename
-    end
+        filename ->
+          {:ok, filename}
+      end
 
-    Logger.info("Loading config from #{filename}")
+    # Logger.info("Loading config from #{filename}")
 
-    with {:ok, config} <- WtfConfig.load(filename)
-      do
+    with {:ok, filename} <- filename,
+         {:ok, config} <- WtfConfig.load(filename) do
       Logger.debug(inspect(config))
-      {:ok, struct(WtfConfigData, config)}
+      {:ok, config}
     else
-      err -> Logger.error(inspect(err))
-             {:error}
+      {:error, msg} ->
+        {:error, msg}
+
+      err ->
+        Logger.error(inspect(err))
+        err
     end
   end
 end
 
 defmodule ExWtf do
+  @moduledoc """
+  Supervises the children for the indexer
+  """
   use Supervisor
-  # import Supervisor.Spec
   require Logger
 
-  def start_link(%WtfConfigData{} = config, opts) do
-    Logger.debug("Starting ExWtf supervisor: #{inspect(config)}")
+  def start_link(%WtfConfigData{} = config, opts) do    
+    Logger.info("Starting ExWtf supervisor: #{inspect(config)}, #{inspect(opts)}")
     Supervisor.start_link(__MODULE__, config, opts)
   end
 
   # def init(config) do
-  def init(_) do
-
+  def init(config) do
+    catndxr = %{
+      id: ExWtf.CatalogNdxrs,
+      start: {ExWtf.CatalogNdxrs, :start_link, [config, []]}
+    }
     children = [
       {Registry, keys: :unique, name: Ndxrs},
-      {Registry, keys: :duplicate, name: CatalogNotify},
-      {Task.Supervisor, name: DbTasks},
+      # {Registry, keys: :duplicate, name: CatalogNotify},
+      # {Task.Supervisor, name: DbTasks},
+      catndxr,
+      {DynamicSupervisor, name: NdxCatalogSupervisor, strategy: :one_for_one},
       EctoStorage
     ]
+
     Supervisor.init(children, strategy: :one_for_one)
-
   end
 
-  def start_catalog(%Ndxr.Catalog{} = catalog) do
-
-    keys = Registry.keys(CatalogNotify, self())
-
-    if("add_directory" not in keys) do
-
-      {:ok, _} = Registry.register(
-        CatalogNotify,
-        "add_directory",
-        {ExWtf, :add_directory}
-      )
-    end
-
-
-    Logger.warn("Starting catalog #{inspect(catalog.name)}")
-
-    name = ExWtf.Ndxr.get_id(catalog.name)
-
-    wrkr = worker(ExWtf.Ndxr, [catalog, [name: name]], id: name)
-
-    case Supervisor.start_child(ExWtf, wrkr) do
-
-      {:ok, _} -> :ok
-
-      {:error, {:already_started, pid}} ->
-        Logger.warn("Catalog #{inspect(catalog.name)} already started with pid #{inspect(pid)}")
-
-      {:error, err} -> Logger.error(inspect(err))
-
-    end
-  end
-
-  def load_catalog(catalog_name)
-      when is_bitstring(catalog_name)
-    do
-    Logger.warn("Loading catalog #{catalog_name}")
-    GenServer.cast(
-      {:via, Registry, {Ndxrs, catalog_name}},
-      {:load_catalog, nil}
-    )
-  end
-
-  @doc ~S"""
-  Appends Ndxr.Directory to state of catalog.
-  Used as the callback to load_catalog/3
-  """
-  def add_directory(catalog, %Ndxr.Directory{} = directory) do
-    Logger.info("Adding directory (static) #{inspect(directory.relpath)} for catalog: #{inspect(catalog.name)}")
-    Logger.warn("Active children: #{inspect(Supervisor.count_children(__MODULE__))}")
-    Task.Supervisor.start_child(DbTasks, ExWtf.NdxrStorage, :add_directory, [catalog, directory])
+  def get_id(catalog_name) do
+    {:via, Registry, {Ndxrs, catalog_name}}
   end
 end
+

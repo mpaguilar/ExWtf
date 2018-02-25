@@ -6,7 +6,7 @@ defmodule ExWtf.Mixfile do
       app: :ex_wtf,
       version: "0.1.0",
       elixir: "~> 1.5",
-      start_permanent: Mix.env == :prod,
+      start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
   end
@@ -24,6 +24,7 @@ defmodule ExWtf.Mixfile do
         :ecto
       ],
       mod: {ExWtfMain, [config_file: "wtf_config.json"]}
+      # config_file: "wtf_config_test.json"
     ]
   end
 

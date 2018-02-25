@@ -7,57 +7,61 @@ defmodule Model.Catalog do
   @primary_key {:id, :id, autogenerate: true}
   @timestamps_opts [autogenerate: {EctoTimestamps.Local, :autogenerate, [:usec]}]
 
-
   schema "catalogs" do
-    field :name, :string
-    field :path, :string
-    field :include, :string
-    field :exclude, :string
-    field :fstype, :string
+    field(:name, :string)
+    field(:path, :string)
+    field(:include, :string)
+    field(:exclude, :string)
+    field(:fstype, :string)
+    field(:host, :string)
     timestamps()
-    has_many :directories, Model.Directory
+    has_many(:directories, Model.Directory)
   end
 
   def changeset(%Model.Catalog{} = catalog, %Ndxr.Catalog{} = ndxr) do
-    Logger.warn("Using catalog changeset model #{inspect(catalog)}")
-    Logger.warn("Using catalog changeset ndxr #{inspect(ndxr)}")
+    # Logger.warn("Using catalog changeset model #{inspect(catalog)}")
+    # Logger.warn("Using catalog changeset ndxr #{inspect(ndxr)}")
 
     ndxr = %{
-      Map.from_struct(ndxr) |
-      include: Poison.encode!(ndxr.include),
-      exclude: Poison.encode!(ndxr.exclude)
+      Map.from_struct(ndxr)
+      | include: Poison.encode!(ndxr.include),
+        exclude: Poison.encode!(ndxr.exclude)
     }
 
+    # |> cast_assoc(:directories)
     catalog
     |> EctoStorage.preload(:directories)
-    |> cast(ndxr, [:name, :path, :fstype, :include, :exclude])
-      # |> cast_assoc(:directories)
+    |> cast(ndxr, [:name, :path, :fstype, :host, :include, :exclude])
     |> validate_required([:name, :path])
     |> unique_constraint(:id, name: :catalogs_pkey)
     |> unique_constraint(:name, name: :catalogs_name_index)
-
   end
 
   def find(catalog_name)
       when is_bitstring(catalog_name) do
+    # Logger.info("Querying for catalog name #{inspect(catalog_name)}")
 
-    q = from c in Model.Catalog,
-             where: c.name == ^catalog_name,
-             select: c
+    q =
+      from(
+        c in Model.Catalog,
+        where: c.name == ^catalog_name,
+        select: c
+      )
 
     recs = EctoStorage.all(q)
 
     case Enum.count(recs) do
-      0 -> {:error, :not_found}
+      0 ->
+        {:error, :not_found}
+
       1 ->
         {:ok, hd(recs)}
-      _ -> Logger.error("Too many catalog results")
-           {:error, "Too many catalog results"}
+
+      _ ->
+        Logger.error("Too many catalog results")
+        {:error, "Too many catalog results"}
     end
-
   end
-
-
 end
 
 defimpl Model.Ndxr, for: Ndxr.Catalog do
@@ -79,34 +83,38 @@ defimpl Model.Ndxr, for: Ndxr.Catalog do
   end
 
   def upsert(%Ndxr.Catalog{} = catalog, _) do
+    Logger.info("Upserting catalog #{inspect(catalog.name)}")
 
-    {:ok, change} = case find(catalog.name) do
+    {:ok, _} =
+      case find(catalog.name) do
+        {:ok, cat_rec} ->
+          Logger.debug("Found catalog #{inspect(catalog.name)}")
 
-      {:ok, cat_rec} ->
-        {
-          :ok,
-          EctoStorage.update(
-            changeset(
-              cat_rec,
-              catalog
+          {
+            :ok,
+            EctoStorage.update(
+              changeset(
+                cat_rec,
+                catalog
+              )
             )
-          )
-        }
+          }
 
-      {:error, :not_found} ->
-        {
-          :ok,
-          EctoStorage.insert(
-            changeset(
-              %Model.Catalog{},
-              catalog
+        {:error, :not_found} ->
+          Logger.debug("Did not find catalog #{inspect(catalog.name)}")
+
+          {
+            :ok,
+            EctoStorage.insert(
+              changeset(
+                %Model.Catalog{},
+                catalog
+              )
             )
-          )
-        }
+          }
 
-      err -> {:error, err}
-    end
-
+        err ->
+          {:error, err}
+      end
   end
-
 end

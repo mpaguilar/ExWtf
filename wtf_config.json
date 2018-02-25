@@ -1,14 +1,16 @@
 {
   "catalogs": [
     {
-      "name": "Current directory",
-      "path": "./",
+      "name": "A Catalog",
+      "path": "d:/Data",
       "exclude": [
         "*.git"
       ],
       "include": [
         "*"
       ],
-      "fstype": "local"
+      "fstype": "local",
+      "host" : "ahostname"
     }
+  ]
 }
